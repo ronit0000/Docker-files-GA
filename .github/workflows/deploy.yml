@@ -1,75 +1,53 @@
-name: Deploy Ecommerce Fullstack App on EC2
+version: "3.9"
 
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:   # allow manual run from GitHub UI
+services:
+  db:
+    image: mysql:8.0
+    container_name: ecommerce-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: ecommerce
+      MYSQL_USER: ecommerce_user
+      MYSQL_PASSWORD: ecommerce_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
+  backend:
+    image: ecommerce-backend
+    container_name: ecommerce-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://db:3306/ecommerce
+      SPRING_DATASOURCE_USERNAME: ecommerce_user
+      SPRING_DATASOURCE_PASSWORD: ecommerce_pass
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
 
-    steps:
-      # Step 1: Checkout repo
-      - name: Checkout Repo
-        uses: actions/checkout@v3
+  frontend:
+    image: ecommerce-frontend
+    container_name: ecommerce-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
 
-      # Step 2: Debug - list files in repo
-      - name: List repo files
-        run: ls -R
-
-      # Step 3: Copy files to EC2 inside ~/ecommercefullstack
-      - name: Copy repo to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu   # or ubuntu if Ubuntu server
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "./*"
-          target: /home/ubuntu/ecommercefullstack
- 
-
-      # Step 4: SSH into EC2 and deploy with Docker Compose
-      - name: Deploy on EC2 with Docker Compose
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu    # ✅ Amazon Linux user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script_stop: true
-          debug: true
-          script: |
-            
-            cd ~/ecommercefullstack
-
-            # Install Git if missing
-            if ! command -v git &> /dev/null; then
-            echo "Installing Git..."
-            sudo apt-get update -y
-            sudo apt-get install -y git
-            fi
-
-            # Install Docker if missing
-            if ! command -v docker &> /dev/null; then
-            echo "Installing Docker..."
-            sudo apt-get update -y
-            sudo apt-get install -y ca-certificates curl gnupg lsb-release
-
-            sudo mkdir -p /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-
-            echo \
-                "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-                $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-            sudo apt-get update -y
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-            sudo systemctl enable docker
-            sudo systemctl start docker
-            fi
-
-            # Stop old containers, rebuild, and restart (with sudo)
-            sudo docker compose down
-            sudo docker compose up -d --build
+volumes:
+  db_data:
