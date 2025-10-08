@@ -6,7 +6,7 @@ WORKDIR /app
 RUN apk add --no-cache git
 
 # Clone your frontend repo
-RUN git clone https://github.com/imasheshk/docker-fe-s104.git .
+RUN git clone https://github.com/ronit0000/Docker_FS_FE.git .
 
 # Install dependencies as root first
 RUN npm install -g vite
